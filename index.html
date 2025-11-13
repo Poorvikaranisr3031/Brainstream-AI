@@ -1,0 +1,493 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Offline Math Chatbot — Ready to Deploy</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <!-- Tesseract.js (WASM OCR) and nerdamer (symbolic math) from CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@2.1.5/dist/tesseract.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/nerdamer/1.1.14/nerdamer.core.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/nerdamer/1.1.14/Algebra.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/nerdamer/1.1.14/Calculus.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/nerdamer/1.1.14/Solve.min.js"></script>
+  <style>
+    :root{--bg:#0f1724;--card:#0b1220;--muted:#94a3b8;--accent:#2563eb;--success:#16a34a}
+    body{margin:0;font-family:Inter,ui-sans-serif,system-ui,Segoe UI,Roboto,'Helvetica Neue',Arial;background:var(--bg);color:#e6eef8}
+    .app{max-width:1100px;margin:28px auto;padding:18px}
+    .header{display:flex;gap:16px;align-items:center;justify-content:space-between}
+    .brand{font-weight:700;font-size:20px}
+    .panel{display:flex;gap:18px;margin-top:18px}
+    .left{width:340px}
+    .card{background:linear-gradient(180deg,rgba(255,255,255,0.02),transparent);padding:14px;border-radius:12px;border:1px solid rgba(255,255,255,0.03)}
+    input,button,textarea,select{font:inherit}
+    .field{width:100%;padding:10px;border-radius:8px;border:1px solid rgba(255,255,255,0.04);background:transparent;color:inherit}
+    .muted{color:var(--muted);font-size:13px}
+    .small{font-size:13px}
+    .files-preview{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+    .thumb{width:80px;height:80px;border-radius:8px;background:#071025;display:flex;align-items:center;justify-content:center;overflow:hidden;border:1px solid rgba(255,255,255,0.03)}
+    .thumb img{width:100%;height:100%;object-fit:cover}
+    .chat-area{flex:1;display:flex;flex-direction:column;height:76vh}
+    .messages{flex:1;overflow:auto;padding:12px;display:flex;flex-direction:column;gap:12px}
+    .msg{max-width:78%;padding:10px;border-radius:10px;box-shadow:0 1px 0 rgba(0,0,0,0.3)}
+    .user{align-self:flex-end;background:linear-gradient(180deg,#1e40af,#1d4ed8);color:white}
+    .bot{align-self:flex-start;background:rgba(255,255,255,0.03);color:#dbeafe;border:1px solid rgba(255,255,255,0.02)}
+    .composer{display:flex;gap:8px;padding-top:8px;align-items:flex-end}
+    .file-list{font-size:13px;color:var(--muted)}
+    .btn{padding:10px 12px;border-radius:8px;border:0;background:var(--accent);color:white;cursor:pointer}
+    .btn-ghost{background:transparent;border:1px solid rgba(255,255,255,0.04)}
+    .badge{font-size:12px;padding:6px 8px;border-radius:999px;background:#062b11;color:var(--success);border:1px solid rgba(0,255,0,0.06)}
+    .meta{display:flex;gap:8px;align-items:center}
+    .premium{background:linear-gradient(90deg,#7c3aed,#ec4899);padding:6px 10px;border-radius:999px}
+    .notice{background:#082033;padding:8px;border-radius:8px;border:1px solid rgba(255,255,255,0.02);font-size:13px;color:var(--muted)}
+    .small-muted{font-size:13px;color:var(--muted)}
+    .spinner{width:18px;height:18px;border-radius:50%;border:3px solid rgba(255,255,255,0.08);border-top-color:var(--accent);animation:spin 1s linear infinite}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    .controls{display:flex;gap:8px;align-items:center}
+    .danger{background:#dc2626}
+    .success{background:var(--success)}
+    .linklike{background:none;border:0;color:#93c5fd;cursor:pointer}
+    .kbd{background:rgba(255,255,255,0.03);padding:4px 8px;border-radius:6px;border:1px solid rgba(255,255,255,0.02)}
+    .kbd small{font-size:12px}
+    footer{margin-top:16px;color:var(--muted);font-size:13px;text-align:center}
+    .note{font-size:13px;color:var(--muted);margin-top:8px}
+  </style>
+</head>
+<body>
+  <div class="app">
+    <div class="header">
+      <div class="brand">Offline Math Chatbot — In-Browser</div>
+      <div class="meta">
+        <div id="userLabel" class="small-muted">Not signed in</div>
+        <div style="width:12px"></div>
+        <button id="logoutBtn" class="btn-ghost small" style="display:none">Logout</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="left">
+        <div class="card">
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <div>
+              <div style="font-weight:700">Account</div>
+              <div class="muted small">Local demo accounts (stored in this browser)</div>
+            </div>
+            <div id="premiumBadge" style="display:none" class="badge">Premium</div>
+          </div>
+
+          <div id="authArea" style="margin-top:12px">
+            <div style="display:flex;gap:8px;margin-bottom:8px">
+              <input id="email" class="field" placeholder="Email" />
+            </div>
+            <div style="display:flex;gap:8px">
+              <input id="password" class="field" placeholder="Password" type="password" />
+            </div>
+            <div style="display:flex;gap:8px;margin-top:8px">
+              <button id="signup" class="btn">Signup</button>
+              <button id="login" class="btn btn-ghost">Login</button>
+            </div>
+            <div class="note">Tip: This demo stores account + premium info in localStorage. Not secure for real users.</div>
+          </div>
+
+          <div id="accountArea" style="display:none;margin-top:12px">
+            <div style="display:flex;flex-direction:column;gap:6px">
+              <div><strong id="acctEmail"></strong></div>
+              <div class="small-muted">Premium expires: <span id="premiumExpires">—</span></div>
+
+              <div style="display:flex;gap:8px;margin-top:8px">
+                <button id="buyPremium" class="btn">Activate 15-day Premium</button>
+                <button id="revokePremium" class="btn btn-ghost">Remove Premium</button>
+              </div>
+
+              <div style="margin-top:10px">
+                <button id="clearAll" class="btn btn-ghost small">Clear all stored accounts (local only)</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div style="height:12px"></div>
+
+        <div class="card">
+          <div style="font-weight:700">OCR & Solver Options</div>
+          <div class="muted small">Tesseract runs fully in your browser. You can optionally use an OpenAI key for richer text/step explanations (network required).</div>
+
+          <div style="margin-top:8px">
+            <label class="small-muted">Optional OpenAI key (not saved):</label>
+            <input id="openaiKey" class="field" placeholder="sk-..." />
+            <div class="note">If you paste an OpenAI key, the app will optionally call the OpenAI chat endpoint to get step-by-step narration. This is optional.</div>
+          </div>
+        </div>
+
+        <div style="height:12px"></div>
+
+        <div class="card">
+          <div style="font-weight:700">How to use</div>
+          <ol class="small-muted" style="padding-left:18px;margin-top:8px">
+            <li>Sign up / Login</li>
+            <li>Attach image(s) of math problems (JPG/PNG); unlimited in browser</li>
+            <li>Click <em>Send</em> — OCR + solver run locally</li>
+            <li>If you added OpenAI key, the assistant will produce a richer explanation</li>
+          </ol>
+        </div>
+      </div>
+
+      <div class="card chat-area" style="flex:1;min-width:0">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <div style="font-weight:700">Chat</div>
+          <div class="small-muted">Local-only demo • files stay in browser memory</div>
+        </div>
+
+        <div id="messages" class="messages" aria-live="polite"></div>
+
+        <div class="composer">
+          <div style="flex:1;display:flex;flex-direction:column">
+            <div style="display:flex;gap:8px">
+              <input id="fileInput" type="file" accept="image/*,application/pdf" multiple style="display:none" />
+              <label for="fileInput" class="btn-ghost small linklike" title="Attach images or PDFs">Attach files</label>
+              <div class="file-list" id="fileList">No files</div>
+            </div>
+
+            <textarea id="userInput" class="field" rows="3" placeholder="Type your math question (or leave blank to solve attached images)"></textarea>
+            <div style="display:flex;gap:8px;align-items:center;margin-top:8px">
+              <button id="voiceBtn" class="btn btn-ghost small">🎙 Voice</button>
+              <button id="sendBtn" class="btn">Send</button>
+              <div id="busy" style="display:none" class="meta"><div class="spinner"></div><div style="width:8px"></div><div class="small-muted">Working...</div></div>
+              <div style="flex:1"></div>
+              <button id="clearBtn" class="btn btn-ghost small">Clear chat</button>
+            </div>
+
+            <div id="preview" class="files-preview"></div>
+            <div id="extracted" class="note"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <footer>
+      Demo • Runs entirely in your browser • OCR: Tesseract.js • Solver: nerdamer
+    </footer>
+  </div>
+
+<script>
+/*
+  Single-file in-browser math chatbot.
+  - localStorage users: {users: [{email,password,premium_until}], current: email}
+  - OCR via Tesseract.js
+  - Math solving via nerdamer
+  - Optional OpenAI (user may paste key to get steps)
+*/
+
+// --- Utilities
+const $ = id => document.getElementById(id);
+const fmt = ts => ts ? new Date(ts).toLocaleString() : '—';
+const now = () => Date.now();
+
+// --- Local account storage helpers
+function loadState() {
+  return JSON.parse(localStorage.getItem('mb_state') || '{"users":[], "current": null, "chats": {}}');
+}
+function saveState(s){ localStorage.setItem('mb_state', JSON.stringify(s)); }
+function findUser(state, email){ return state.users.find(u=>u.email===email); }
+function setCurrent(email){
+  const s = loadState(); s.current = email; saveState(s); renderAccount(); loadChatsForCurrent();
+}
+function clearAll(){
+  if(!confirm('Clear all stored accounts and chats in this browser?')) return;
+  localStorage.removeItem('mb_state'); renderAccount(); showMsg('All local data cleared', 'bot'); location.reload();
+}
+
+// --- Auth UI
+$('signup').onclick = () => {
+  const email = $('email').value.trim();
+  const pass = $('password').value;
+  if(!email || !pass){ alert('Email + password required'); return; }
+  const s = loadState();
+  if(findUser(s,email)){ alert('User exists — please login'); return; }
+  s.users.push({ email, password: pass, premium_until: null });
+  saveState(s);
+  alert('Signup success — you can now login');
+};
+$('login').onclick = () => {
+  const email = $('email').value.trim();
+  const pass = $('password').value;
+  if(!email || !pass){ alert('Email + password required'); return; }
+  const s = loadState();
+  const u = findUser(s,email);
+  if(!u || u.password !== pass){ alert('Invalid credentials'); return; }
+  setCurrent(email);
+  showMsg('Logged in as ' + email, 'bot');
+};
+$('logoutBtn').onclick = () => {
+  const s = loadState(); s.current = null; saveState(s); renderAccount(); messagesEl.innerHTML=''; $('extracted').textContent=''; localFiles=[]; renderPreview();
+};
+$('clearAll').onclick = clearAll;
+
+// premium controls
+$('buyPremium').onclick = () => {
+  const s = loadState(); const cur = s.current;
+  if(!cur){ alert('Please login'); return; }
+  const u = findUser(s, cur);
+  u.premium_until = Date.now() + 15*24*60*60*1000; // 15 days
+  saveState(s); renderAccount(); alert('Premium activated for 15 days');
+};
+$('revokePremium').onclick = () => {
+  const s = loadState(); const cur = s.current; if(!cur) return alert('Login first');
+  const u = findUser(s, cur); u.premium_until = null; saveState(s); renderAccount();
+};
+
+// render account area
+function renderAccount(){
+  const s = loadState();
+  const cur = s.current;
+  if(!cur){
+    $('authArea').style.display = 'block';
+    $('accountArea').style.display = 'none';
+    $('logoutBtn').style.display = 'none';
+    $('userLabel').textContent = 'Not signed in';
+    $('premiumBadge').style.display = 'none';
+  } else {
+    const u = findUser(s, cur);
+    $('authArea').style.display = 'none';
+    $('accountArea').style.display = 'block';
+    $('logoutBtn').style.display = 'inline-block';
+    $('acctEmail').textContent = u.email;
+    $('userLabel').textContent = u.email;
+    $('premiumBadge').style.display = (u.premium_until && Date.now() < u.premium_until) ? 'inline-block' : 'none';
+    $('premiumExpires').textContent = u.premium_until ? fmt(u.premium_until) : '—';
+  }
+}
+renderAccount();
+
+// --- Chat + files
+let localFiles = []; // File objects array
+const messagesEl = $('messages');
+const previewEl = $('preview');
+const fileInput = $('fileInput');
+
+fileInput.addEventListener('change', (e) => {
+  const files = Array.from(e.target.files || []);
+  localFiles.push(...files);
+  renderPreview();
+});
+
+function renderPreview(){
+  previewEl.innerHTML = '';
+  if(localFiles.length === 0) { $('fileList').textContent = 'No files'; return; }
+  $('fileList').textContent = localFiles.length + ' file(s)';
+  localFiles.forEach((f,i) => {
+    const d = document.createElement('div');
+    d.className = 'thumb';
+    if(f.type.startsWith('image/')){
+      const img = document.createElement('img');
+      img.src = URL.createObjectURL(f);
+      d.appendChild(img);
+    } else {
+      d.textContent = f.name.endsWith('.pdf') ? 'PDF' : 'FILE';
+    }
+    const wrapper = document.createElement('div');
+    wrapper.style.display = 'flex';
+    wrapper.style.flexDirection = 'column';
+    wrapper.style.alignItems = 'center';
+    wrapper.style.gap = '6px';
+    wrapper.appendChild(d);
+    const name = document.createElement('div'); name.style.fontSize='12px'; name.textContent = f.name;
+    const rm = document.createElement('button'); rm.className='linklike'; rm.textContent='Remove';
+    rm.onclick = ()=>{ localFiles.splice(i,1); renderPreview(); };
+    wrapper.appendChild(name); wrapper.appendChild(rm);
+    previewEl.appendChild(wrapper);
+  });
+}
+
+// small helper to append message
+function showMsg(text, who='bot'){
+  const el = document.createElement('div');
+  el.className = 'msg ' + (who==='user'?'user':'bot');
+  el.innerText = text;
+  messagesEl.appendChild(el);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+
+// voice recognition (simple)
+let recognition = null;
+if(window.SpeechRecognition || window.webkitSpeechRecognition){
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  recognition = new SR();
+  recognition.lang = 'en-IN';
+  recognition.interimResults = true;
+  recognition.onresult = (ev) => {
+    const text = Array.from(ev.results).map(r=>r[0].transcript).join('');
+    $('userInput').value = text;
+  };
+  recognition.onend = ()=> {$('voiceBtn').textContent='🎙 Voice';};
+}
+$('voiceBtn').onclick = ()=> {
+  if(!recognition) return alert('SpeechRecognition not supported in this browser (use Chrome).');
+  try{
+    recognition.start();
+    $('voiceBtn').textContent='⏺ Listening...';
+  }catch(e){}
+};
+
+// Solve single expression attempt
+function trySolveExpression(expr){
+  const e = expr.replace(/\s+/g,'').replace('=', '==');
+  if(expr.includes('=')){
+    try{
+      const parts = expr.split('=');
+      const left = parts[0];
+      const right = parts.slice(1).join('=');
+      const eq = '(' + left + ')-(' + right + ')';
+      const sols = nerdamer.solve(eq, 'x');
+      if(sols && sols.length) return 'x = ' + sols.join(', ');
+      const s = nerdamer('solve(' + eq + ',x)').toString();
+      if(s) return s;
+    } catch(e){}
+  } else {
+    try {
+      const simp = nerdamer(expr).expand().toString();
+      return 'Simplified: ' + simp;
+    } catch(e){}
+  }
+  return null;
+}
+
+// OCR + extract math lines
+async function ocrFile(file){
+  if(file.type && file.type.startsWith('image/')){
+    const { data: { text } } = await Tesseract.recognize(file, 'eng', { logger: m => {/* progress logs */} });
+    return text;
+  } else {
+    return '[PDF file: OCR not supported in this demo for PDFs in-browser. Convert PDF to images and upload images]';
+  }
+}
+
+// extract candidate math lines heuristically
+function extractMathCandidates(text){
+  const lines = text.split(/\r?\n/).map(l=>l.trim()).filter(Boolean);
+  const cand = [];
+  const re = /[0-9=+\-*/^()√xπ]|sqrt|sin|cos|tan|log|ln|integral|∫/i;
+  for(const line of lines){
+    if(re.test(line) && line.length<200){
+      cand.push(line);
+    }
+  }
+  return cand;
+}
+
+// main send logic
+$('sendBtn').onclick = async ()=>{
+  const userText = $('userInput').value.trim();
+  const key = $('openaiKey').value.trim();
+  const s = loadState();
+  const current = s.current;
+  if(!current){ alert('Please sign up / login first'); return; }
+
+  if(userText) showMsg(userText, 'user');
+  else if(localFiles.length === 0){ alert('Type a question or attach images'); return; }
+
+  $('busy').style.display = 'inline-flex';
+  $('sendBtn').disabled = true;
+
+  let combinedText = userText ? ('User question: ' + userText + '\n\n') : '';
+  for(const f of localFiles){
+    showMsg('Processing file: ' + f.name, 'bot');
+    try{
+      const txt = await ocrFile(f);
+      combinedText += '\n[OCR of ' + f.name + ']\n' + txt + '\n';
+    }catch(e){
+      combinedText += '\n[Error reading ' + f.name + ']\n';
+    }
+  }
+
+  const candidates = extractMathCandidates(combinedText);
+  const results = [];
+
+  for(const c of candidates){
+    let sol = trySolveExpression(c);
+    if(!sol) sol = 'Could not symbolically solve. Showing extracted expression.';
+    results.push({ expr: c, solution: sol });
+  }
+
+  const userAccount = findUser(s, current);
+  const isPremium = userAccount && userAccount.premium_until && Date.now() < userAccount.premium_until;
+
+  let assistantText = '';
+
+  if(key && key.startsWith('sk-')){
+    try{
+      const body = {
+        model: "gpt-4o-mini",
+        messages: [
+          {role:'system', content: 'You are a helpful math tutor. Provide step-by-step solutions where possible.'},
+          {role:'user', content: combinedText + '\n\nExtracted candidates and attempted solutions:\n' + JSON.stringify(results, null, 2)}
+        ],
+        max_tokens: 700
+      };
+      const r = await fetch('https://api.openai.com/v1/chat/completions', {
+        method:'POST',
+        headers:{ 'Content-Type':'application/json', 'Authorization':'Bearer ' + key },
+        body: JSON.stringify(body)
+      });
+      if(r.ok){
+        const j = await r.json();
+        assistantText = j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content;
+      } else {
+        assistantText = 'OpenAI call failed (HTTP ' + r.status + '). Falling back to local solver.';
+      }
+    }catch(e){
+      assistantText = 'OpenAI call error: ' + (e.message || e);
+    }
+  }
+
+  if(!assistantText){
+    assistantText = 'Local solver results:\n';
+    if(results.length===0) assistantText += 'No math expressions were confidently detected.\n\nExtracted text snippet:\n' + (combinedText.slice(0,800) || '(no text)') ;
+    else {
+      for(const r of results){
+        assistantText += '\nExpression: ' + r.expr + '\nSolution: ' + r.solution + '\n';
+      }
+    }
+    if(isPremium) assistantText += '\n\n(Premium feature enabled: you get richer explanations if you provide an OpenAI key)';
+  }
+
+  showMsg(assistantText, 'bot');
+
+  s.chats = s.chats || {};
+  s.chats[current] = s.chats[current] || [];
+  s.chats[current].push({ ts: Date.now(), user: userText || '[image-based request]', assistant: assistantText, files: localFiles.map(f=>f.name) });
+  saveState(s);
+
+  $('busy').style.display='none';
+  $('sendBtn').disabled=false;
+  $('userInput').value=''; localFiles = []; renderPreview();
+  $('extracted').textContent = 'Detected expressions: ' + (candidates.length ? candidates.join(' | ') : 'None');
+};
+
+// clear chat button
+$('clearBtn').onclick = () => {
+  messagesEl.innerHTML = ''; $('extracted').textContent=''; localFiles=[]; renderPreview();
+};
+
+// load saved chats when logged in (simple)
+function loadChatsForCurrent(){
+  const s = loadState();
+  const cur = s.current;
+  messagesEl.innerHTML = '';
+  if(!cur) return;
+  const arr = (s.chats && s.chats[cur]) || [];
+  for(const entry of arr){
+    if(entry.user) showMsg(entry.user, 'user');
+    if(entry.assistant) showMsg(entry.assistant, 'bot');
+  }
+}
+
+// show initial greeting
+showMsg('Hello — upload images of math problems or type a question. Sign up / log in to use Premium.', 'bot');
+
+// when account changes, load chats for current user
+window.addEventListener('storage', ()=>{ renderAccount(); loadChatsForCurrent(); });
+(function(){ const s = loadState(); if(s.current) loadChatsForCurrent(); })();
+
+</script>
+</body>
+</html>
